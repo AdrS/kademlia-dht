@@ -33,10 +33,12 @@ class Contact(object):
 	def __ne__(self, other):
 		return not self.__eq__(other)
 
-
 class Bucket(object):
 	MAX_BUCKET_SIZE = 20
 	def __init__(self):
+		#invariant: nodes are sorted by sorted by time since last contact
+		#ie: least recently contacted is at head of list, more recently
+		#contacted is at tail
 		self.contacts = []
 
 	def update(self, contact):
@@ -57,13 +59,47 @@ class Bucket(object):
 
 class Node(object):
 	def __init__(self):
-		#node_id is randomly choosen
+		#node_id is randomly chosen
 		self.node_id = os.urandom(32)
 		self.buckets = [Bucket() for _ in range(256)]
 
 	def distance(self, node_id):
+		'''
+		returns the distance from the given node to this node
+		the distance is the xor of the node ids
+		this satisfies the properties:
+		1) distance(x,x) = 0
+		2) distance(x,y) = distance(y, x)
+		3) distance(x,y) + distance(y, z) >= distance(x, z)
+		'''
 		return xor(self.node_id, node_id)
-	
+
 	def update_route(self, contact):
+		'''
+		takes a just contacted node and updates the routing tables
+		'''
 		d = self.distance(contact.node_id)
 		self.buckets[bucket_index(d)].update(contact)
+
+	def closest_nodes(self, node_id, k = 20):
+		'''
+		returns the k nodes in routing table closest to given node_id
+		'''
+		closest = []
+		d = self.distance(node_id)
+		idx = bucket_index(d)
+
+		closest.extend(self.buckets[idx].contacts)
+
+		i = 1
+		#add nodes until we have >= k (or there are no more nodes left to add)
+		while len(closest) < k and (idx - i >= 0 or idx + i < len(self.buckets)):
+			if idx - i >= 0:
+				closest.extend(self.buckets[idx - i].contacts)
+			if idx + i < len(self.buckets):
+				closest.extend(self.buckets[idx + i].contacts)
+			i = i + 1
+		#sort to get k closest
+		#TODO: could be faster (computes xor too often)
+		closest.sort(key=lambda c: xor(c.node_id, node_id))
+		return closest[:k]

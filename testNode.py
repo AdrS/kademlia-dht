@@ -76,6 +76,23 @@ class TestBucket(unittest.TestCase):
 		#TODO: add tests for full contact list
 		#note: eviction depends on network activity, so test more complicated
 
-		
+class TestNode(unittest.TestCase):
+	def test_update_route(self):
+		pass
+
+	def test_closest_nodes(self):
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
+		c2 = Contact(b'\x02'*32, '123.21.12.231', 1234)
+		c3 = Contact(b'\x03'*32, '123.21.12.231', 1234)
+		c4 = Contact(b'\x04'*32, '123.21.12.231', 1234)
+		c5 = Contact(b'\x05'*32, '123.21.12.231', 1234)
+		c6 = Contact(b'\x06'*32, '123.21.12.231', 1234)
+		n = Node()
+		for c in [c1, c2, c3, c4, c5, c6]:
+			n.update_route(c)
+		self.assertEqual(n.closest_nodes(b'\x02'*32, 10), [c2, c3, c1, c6, c4, c5])
+		self.assertEqual(n.closest_nodes(b'\x02'*32, 1), [c2])
+		self.assertEqual(n.closest_nodes(b'\x08'*32, 3), [c1, c2, c3])
+
 if __name__ == '__main__':
 	unittest.main()

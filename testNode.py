@@ -57,7 +57,7 @@ class TestContact(unittest.TestCase):
 	def test_decode(self):
 		self.assertEqual(Contact.decode(b'a'*12), None)
 
-		c1 = Contact(b'\x01'*32, '123.21.12.231', 0x1234)
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 0xf234)
 		c1p = Contact.decode(c1.encode())
 		self.assertEqual(c1p.node_id, c1.node_id)
 		self.assertEqual(c1p.ip, c1.ip)

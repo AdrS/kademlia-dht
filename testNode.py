@@ -69,6 +69,10 @@ class TestContact(unittest.TestCase):
 		self.assertEqual(c2p.ip, c2.ip)
 		self.assertEqual(c2p.port, c2.port)
 
+	def test_repr(self):
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
+		self.assertEqual(c1.__repr__(), 'Contact(addr=123.21.12.231:1234, id=' + '01'*32 + ')')
+
 class TestBucket(unittest.TestCase):
 	def test_init(self):
 		b = Bucket()

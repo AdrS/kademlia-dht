@@ -1,4 +1,4 @@
-import os, socket, struct, sys
+import binascii, os, socket, struct, sys
 
 def xor(s1, s2):
 	return bytes(b1 ^ b2 for b1, b2 in zip(s1, s2))
@@ -20,6 +20,9 @@ def bucket_index(distance):
 	returns index j such that 2^j <= distance < 2^(j + 1)
 	'''
 	return 255 - num_leading_zeros(distance)
+
+def bytes_to_hex(bs):
+	return str(binascii.hexlify(bs), 'ascii')
 
 class Contact(object):
 	def __init__(self, node_id, ip, port):
@@ -52,6 +55,10 @@ class Contact(object):
 		port = struct.unpack('!h', raw[36:40])[0]
 		return Contact(node_id, ip, port)
 
+	def __repr__(self):
+		hs = bytes_to_hex(self.node_id)
+		return 'Contact(addr=%s:%d, id=%s)' % (self.ip, self.port, hs)
+
 class Bucket(object):
 	MAX_BUCKET_SIZE = 20
 	def __init__(self):
@@ -75,6 +82,12 @@ class Bucket(object):
 			#TODO: check if old node is online (for now just replace it)
 			self.contacts.pop(0)
 			self.append(contact)
+
+	def empty(self):
+		return len(self.contacts) == 0
+
+	def __repr__(self):
+		return 'Bucket([' + ',\n'.join([c.__repr__() for c in self.contacts]) + '])'
 
 class Node(object):
 	def __init__(self):
@@ -122,6 +135,11 @@ class Node(object):
 		#TODO: could be faster (computes xor too often)
 		closest.sort(key=lambda c: xor(c.node_id, node_id))
 		return closest[:k]
+
+	def __repr__(self):
+		hs = bytes_to_hex(self.node_id)
+		bs = ',\n'.join([b.__repr__() for b in self.buckets if not b.empty()])
+		return 'Node(id=%s, buckets=[%s])' % (hs, bs)
 
 def port_str_valid(ps):
 	if not ps.isdigit():

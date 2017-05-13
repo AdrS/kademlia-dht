@@ -1,4 +1,4 @@
-import os
+import os, socket, struct, sys
 
 def xor(s1, s2):
 	return bytes(b1 ^ b2 for b1, b2 in zip(s1, s2))
@@ -32,6 +32,25 @@ class Contact(object):
 
 	def __ne__(self, other):
 		return not self.__eq__(other)
+
+	def encode(self):
+		#TODO: how to handle IPv4 vs IPv6? (IPv4 to IPv6 mapping?)
+		ip = socket.inet_aton(self.ip)
+		port = struct.pack('!h', self.port)
+		return b''.join([self.node_id, ip, port])
+
+	@staticmethod
+	def decode(raw):
+		'''
+		Takes binary representation of a Contact and decodes it returning new
+		new Contact or None if representation is invalid
+		'''
+		if len(raw) != 32 + 4 + 2:
+			return None
+		node_id = raw[:32]
+		ip = socket.inet_ntoa(raw[32:36])
+		port = struct.unpack('!h', raw[36:40])[0]
+		return Contact(node_id, ip, port)
 
 class Bucket(object):
 	MAX_BUCKET_SIZE = 20
@@ -103,3 +122,9 @@ class Node(object):
 		#TODO: could be faster (computes xor too often)
 		closest.sort(key=lambda c: xor(c.node_id, node_id))
 		return closest[:k]
+
+def port_str_valid(ps):
+	if not ps.isdigit():
+		return False
+	port = int(ps)
+	return port > 0 and port <= 65535

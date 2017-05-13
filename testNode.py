@@ -18,6 +18,15 @@ class TestHelpers(unittest.TestCase):
 		self.assertEqual(bucket_index(b'\x00'*31 + b'\x07'), 2)
 		self.assertEqual(bucket_index(b'\xff'*32), 255)
 
+	def test_port_str_valid(self):
+		self.assertTrue(port_str_valid('123'))
+		self.assertTrue(port_str_valid('65535'))
+		self.assertTrue(port_str_valid('8888'))
+		self.assertFalse(port_str_valid('0')) #source: https://www.grc.com/port_0.htm
+		self.assertFalse(port_str_valid('asfd'))
+		self.assertFalse(port_str_valid('65536'))
+		self.assertFalse(port_str_valid('-2134'))
+
 class TestContact(unittest.TestCase):
 	def test_eq(self):
 		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
@@ -38,6 +47,27 @@ class TestContact(unittest.TestCase):
 		self.assertFalse(c1 != c2)
 		self.assertNotEqual(c1, c3)
 		self.assertNotEqual(c2, c3)
+
+	def test_encode(self):
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 0x1234)
+		c2 = Contact(b'\x02'*32, '16.0.0.255', 0x34)
+		self.assertEqual(c1.encode(), b'\x01'*32 + b'{\x15\x0c\xe7' + b'\x12\x34')
+		self.assertEqual(c2.encode(), b'\x02'*32 + b'\x10\x00\x00\xff' + b'\x00\x34')
+
+	def test_decode(self):
+		self.assertEqual(Contact.decode(b'a'*12), None)
+
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 0x1234)
+		c1p = Contact.decode(c1.encode())
+		self.assertEqual(c1p.node_id, c1.node_id)
+		self.assertEqual(c1p.ip, c1.ip)
+		self.assertEqual(c1p.port, c1.port)
+
+		c2 = Contact(b'\x02'*32, '16.0.0.255', 0x34)
+		c2p = Contact.decode(c2.encode())
+		self.assertEqual(c2p.node_id, c2.node_id)
+		self.assertEqual(c2p.ip, c2.ip)
+		self.assertEqual(c2p.port, c2.port)
 
 class TestBucket(unittest.TestCase):
 	def test_init(self):

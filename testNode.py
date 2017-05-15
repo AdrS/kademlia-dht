@@ -22,7 +22,8 @@ class TestHelpers(unittest.TestCase):
 		self.assertTrue(port_str_valid('123'))
 		self.assertTrue(port_str_valid('65535'))
 		self.assertTrue(port_str_valid('8888'))
-		self.assertFalse(port_str_valid('0')) #source: https://www.grc.com/port_0.htm
+		#source: https://www.grc.com/port_0.htm
+		self.assertFalse(port_str_valid('0'))
 		self.assertFalse(port_str_valid('asfd'))
 		self.assertFalse(port_str_valid('65536'))
 		self.assertFalse(port_str_valid('-2134'))

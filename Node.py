@@ -1,4 +1,4 @@
-import binascii, os, socket, struct, sys
+import binascii, KeyValueStore, os, socket, struct, sys
 
 def xor(s1, s2):
 	return bytes(b1 ^ b2 for b1, b2 in zip(s1, s2))
@@ -158,11 +158,18 @@ class Server(object):
 	FIND_NODE = b'\x06'
 	FIND_NODE_REPLY = b'\x07'
 	FIND_VALUE = b'\x08'
-	FIND_VALUE_SUCCESS = b'\x08'
-	#if value not found, do a return results of find node
+	#if value not found, return results of find node
+	#if value is small enough for a UPD packet, set it
+	SMALL_VALUE_FOUND = b'\x09'
+	#if value too big for one packet, have client fetch over TCP
+	LARGE_VALUE_FOUND = b'\x0a'
 
 	def __init__(self, node, verbose=True):
 		self.node = node
+		#TODO: make use of expiration
+		#	add timers to periodically remove expired entries
+		#	make store automatically determine expiration data
+		self.store = KeyValueStore.KeyValueStore()
 		self.client_addr = None
 		self.message_type = None
 		self.client_id = None
@@ -174,7 +181,7 @@ class Server(object):
 		if self.verbose:
 			print(message)
 
-	def send(self, code, message):
+	def send(self, code, message=b''):
 		s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		data = b''.join([code, self.node.node_id, self.transaction_id, message])
 		s.sendto(data, self.client_addr)
@@ -206,13 +213,18 @@ class Server(object):
 		self.log('Transaction id: %s' % self.transaction_id)
 
 	def handle_ping(self):
-		self.send(Server.PONG,b'')
+		self.send(Server.PONG)
 
 	def handle_pong(self):
-		#TODO: figure out what to do
+		#TODO: ignore for now, when liveness testing is added, this may be important
 		pass
 
 	def handle_find_node(self):
+		'''
+		packet format: headers || key
+		Server returns list of 20 known nodes closest to given key
+		Nodes given in format 32B node id || 4B IPv4 address || 2 byte port
+		'''
 		if len(self.packet_data) != 32:
 			self.log('client error: key is wrong length')
 			self.send_error(b'key is wrong length')
@@ -222,15 +234,46 @@ class Server(object):
 		self.send(Server.FIND_NODE_REPLY, b''.join([c.encode() for c in closest]))
 
 	def handle_find_value(self):
+		'''
+		packet format: headers || key
+		If value corresponding to key is present, value is returned over udp if
+		small enought. Otherwise a LARGE_VALUE_FOUND code is sent to tell
+		client to fetch over TCP.
+		If key not present, server returns results of a find_node
+		'''
 		if len(self.packet_data) != 32:
 			self.log('client error: key is wrong length')
 			self.send_error(b'key is wrong length')
+			return
+		key = self.packet_data
+		if key in self.store:
+			value = self.store[key]
+			if len(value) <= 512:
+				self.log('Find %s -> %s' % (key, value[:32]))
+				#return value over udp if it's small enought
+				self.send(Server.SMALL_VALUE_FOUND, value)
+			else:
+				self.log('Find %s -> %s [Too large to return]' % (key, value[:32]))
+				#otherwise tell client to use TCP
+				self.send(Server.LARGE_VALUE_FOUND)
+		else:
+			self.log('Value for %s not found' % key)
+			self.handle_find_node()
+
+	def handle_store(self):
+		'''
+		packet format: headers || key || value
+		stores key, value pair
+		'''
+		if len(self.packet_data) < 32:
+			self.log('client error: key too short')
+			self.send_error(b'key is too short')
 			return 
-		#TODO: finish this
-		#	if value present, could return it if it's small enough
-		#	or could force client to retrieve over tcp
-		#closest = self.node.closest_nodes(self.packet_data)
-		#self.send(Server.FIND_NODE_REPLY, b''.join([c.encode() for c in closest]))
+		key = self.packet_data[:32]
+		value = self.packet_data[32:]
+		self.log('Storing %s -> %s' % (key, value[:32]))
+		self.store[key] = value
+		self.send(Server.STORE_SUCCESS)
 
 	def handle_udp(self, port):
 		s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -251,6 +294,10 @@ class Server(object):
 				self.handle_pong()
 			elif self.message_type == Server.FIND_NODE:
 				self.handle_find_node()
+			elif self.message_type == Server.FIND_VALUE:
+				self.handle_find_value()
+			elif self.message_type == Server.STORE:
+				self.handle_store()
 			else:
 				self.send_error(b'unknown message type')
 				continue

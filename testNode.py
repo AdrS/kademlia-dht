@@ -28,6 +28,14 @@ class TestHelpers(unittest.TestCase):
 		self.assertFalse(port_str_valid('65536'))
 		self.assertFalse(port_str_valid('-2134'))
 
+	def test_insort_right(self):
+		a = [('a',1), ('b',2), ('d', 4)]
+		insort_right(a, ('c',3), lambda x,y: x[0] < y[0])
+		self.assertEqual(a, [('a',1), ('b',2), ('c', 3), ('d', 4)])
+
+		insort_right(a, ('z',0), lambda x,y: x[1] < y[1])
+		self.assertEqual(a, [('z', 0), ('a',1), ('b',2), ('c', 3), ('d', 4)])
+
 class TestContact(unittest.TestCase):
 	def test_eq(self):
 		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
@@ -74,11 +82,26 @@ class TestContact(unittest.TestCase):
 		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
 		self.assertEqual(c1.__repr__(), 'Contact(addr=123.21.12.231:1234, id=' + '01'*32 + ')')
 
+	def test_update_last_seen(self):
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
+		time.sleep(0.1)
+		c1.update_last_seen()
+		self.assertTrue((c1.last_seen - time.time()) < 0.001)
+
+def el1s(l):
+	return [i[0] for i in l]
+
 class TestBucket(unittest.TestCase):
 	def test_init(self):
 		b = Bucket()
 		self.assertTrue(len(b.contacts) == 0)
-	
+
+	def test_remove_expired(self):
+		#should I just test update directly???
+		#TODO: write update tests for situations where there
+		#	are nodes pending removal
+		pass
+
 	def test_update(self):
 		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
 		c1p = Contact(b'\x01'*32, '123.21.12.231', 1235)
@@ -110,9 +133,106 @@ class TestBucket(unittest.TestCase):
 
 		#TODO: add tests for full contact list
 		#note: eviction depends on network activity, so test more complicated
+		#must do test for when contact is in pending addition or pending removal
+		b = Bucket(3)
+		c1 = Contact(b'\x01'*32, '123.21.12.231', 1234)
+		c1p = Contact(b'\x01'*32, '123.21.12.231', 1235)
+		c2 = Contact(b'\x02'*32, '123.21.12.231', 1235)
+		c3 = Contact(b'\x03'*32, '123.21.12.231', 1235)
+		c4 = Contact(b'\x04'*32, '123.21.12.231', 1235)
+		c5 = Contact(b'\x05'*32, '123.21.12.231', 1235)
+		c6 = Contact(b'\x06'*32, '123.21.12.231', 1235)
+		c7 = Contact(b'\x07'*32, '123.21.12.231', 1235)
+
+		self.assertIsNone(b.update(c1))
+		#space for previously unseen contact
+		self.assertEqual(b.contacts, [c1])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		#contact already in list => not changes
+		self.assertIsNone(b.update(c1))
+		self.assertEqual(b.contacts, [c1])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		self.assertIsNone(b.update(c2))
+		self.assertEqual(b.contacts, [c1, c2])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		self.assertIsNone(b.update(c3))
+		self.assertEqual(b.contacts, [c1, c2, c3])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		self.assertIsNone(b.update(c2))
+		#see contact => moves to back of list
+		self.assertEqual(b.contacts, [c1, c3, c2])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		self.assertEqual(b.update(c4), c1)
+		#contact list full => must remove one
+		self.assertEqual(b.contacts, [c3, c2])
+		self.assertEqual(len(b.pending_removal), 1)
+		self.assertEqual(b.pending_removal[0][0], c1)
+		e1 = time.time() + 10
+		self.assertTrue(abs(b.pending_removal[0][1] - e1) < 0.01)
+		self.assertEqual(b.pending_addition, [c4])
+
+		self.assertIsNone(b.update(c3))
+		#seeing existing contact should not change pending add/remove lists
+		self.assertEqual(b.contacts, [c2, c3])
+		self.assertEqual(len(b.pending_removal), 1)
+		self.assertEqual(b.pending_removal[0][0], c1)
+		self.assertTrue(abs(b.pending_removal[0][1] - e1) < 0.01)
+		self.assertEqual(b.pending_addition, [c4])
+
+		#seeing node that is pending removal should save it
+		self.assertIsNone(b.update(c1))
+		self.assertEqual(b.contacts, [c2, c3, c1])
+		self.assertEqual(b.pending_removal, [])
+		self.assertEqual(b.pending_addition, [])
+
+		self.assertEqual(b.update(c4, 0.1), c2)
+		self.assertEqual(b.update(c5, 0.1), c3)
+		self.assertEqual(b.update(c6, 0.4), c1)
+		self.assertEqual(b.contacts, [])
+		self.assertEqual(el1s(b.pending_removal), [c2, c3, c1])
+		self.assertEqual(b.pending_addition, [c4, c5, c6])
+
+		#full set of contacts pending addition => ignore any new ones
+		self.assertIsNone(b.update(c7))
+		self.assertEqual(b.contacts, [])
+		self.assertEqual(el1s(b.pending_removal), [c2, c3, c1])
+		self.assertEqual(b.pending_addition, [c4, c5, c6])
+
+		t1 = c4.last_seen
+
+		#seeing pending addition updates last seen time
+		self.assertIsNone(b.update(c4))
+		self.assertEqual(b.contacts, [])
+		self.assertEqual(el1s(b.pending_removal), [c2, c3, c1])
+		self.assertEqual(b.pending_addition, [c4, c5, c6])
+		self.assertTrue(t1 < c4.last_seen)
+
+		#stale contacts should get removed
+		time.sleep(0.2)
+		self.assertEqual(b.update(c7), c5)
+		self.assertEqual(el1s(b.pending_removal), [c1, c5])
+		self.assertEqual(b.pending_addition, [c6, c7])
+		self.assertEqual(b.contacts, [c4])
+
+		time.sleep(0.2)
+		self.assertIsNone(b.update(c4))
+		self.assertEqual(el1s(b.pending_removal), [c5])
+		self.assertEqual(b.pending_addition, [c7])
+		self.assertEqual(b.contacts, [c6, c4])
 
 class TestNode(unittest.TestCase):
 	def test_update_route(self):
+		#just wrapper for bucket update
 		pass
 
 	def test_closest_nodes(self):
